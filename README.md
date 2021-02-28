@@ -1,7 +1,7 @@
 # pyshadowcopy
 A wrapper over the WMI Win32_ShadowCopy class for Python
 
-#Устранение проблем с WMI классом ShadowCopy
+#РЈСЃС‚СЂР°РЅРµРЅРёРµ РїСЂРѕР±Р»РµРј СЃ WMI РєР»Р°СЃСЃРѕРј ShadowCopy
 
 sc config winmgmt start= disabled
 net stop winmgmt
