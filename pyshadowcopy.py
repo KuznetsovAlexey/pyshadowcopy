@@ -1,6 +1,7 @@
 import wmi
 import ctypes
 import platform
+import os
 
 class pyshadowcopy():
     """docstring"""
@@ -24,6 +25,12 @@ class pyshadowcopy():
         # Множество со списком ID ShadowCopy
         self.shadowcopys_id = set()
         self.get_shadowcopys_id()
+
+        #Текущий ID ShadowCopy
+        self.current_shadowcopy_id=""
+        #Текущая директория для монтирования
+        self.current_dirtomount = ""
+
 
     def get_disk(self):
         #Функция получения списка доступных дисков
@@ -58,6 +65,127 @@ class pyshadowcopy():
             self.shadowcopys_id.add(shadowcopy.ID)
         return self.shadowcopys_id
 
-        #print(self.wmi.Win32_ShadowCopy[0])
-        #or disk in self.wmi.Win32_ShadowCopy:
-        #    print (disk)
+    def __id_shadowcopy_normalise(self,id="error"):
+        #нормализуем id теневой копии '{00000000-0000-0000-0000-000000000000}'
+        id = id.upper()
+        if id[0] != "{":
+            id = "{" + id
+        if len(id) == 37:
+            id = id + "}"
+
+        if (len(id) == 38 and id[0] == "{" and id[37] == "}" and id[9] == "-" and id[14] == "-" and id[19] == "-" and id[24] == "-" ):
+            return id
+        else:
+            print("Attention!!The ID shadowcopy does not match the format {00000000-0000-0000-0000-000000000000}")
+            return False
+
+    def __drive_letter_normalise(self,drive_letter="error"):
+        #Функция нормазиования имени диска
+        drive_letter=drive_letter.upper()
+        if len(drive_letter) >=4 or len(drive_letter) == 0:
+            print("Attention!! The drive letter is not specified correctly(For example, C:, C:\\)")
+            return False
+
+        if len(drive_letter) == 1:
+            drive_letter = "{0}:\\".format(drive_letter)
+
+        if len(drive_letter) == 2 and drive_letter[1] != ":":
+            print("Attention!! The drive letter is not specified correctly(For example, C:, C:\\)")
+            return False
+        elif len(drive_letter) == 2 and drive_letter[1] == ":":
+            drive_letter="{0}\\".format(drive_letter)
+
+        if (len(drive_letter) == 3 and (drive_letter[1] != ":" or drive_letter[2] != "\\")):
+            print("Attention!! The drive letter is not specified correctly(For example, C:, C:\\)")
+        return drive_letter
+
+    def create_shadowcopy_by_drive(self,drive_letter="error"):
+        # Создает shadowcopy по полученной литере диска, возвращает False или ShadowCopy ID
+        drive_letter=self.__drive_letter_normalise(drive_letter)
+        if not(drive_letter):
+            return False
+
+        #проверяем можем ли мы выполнить shadowcopy (Является ли предложеный диск, диском с типом FS - NTFS)
+        if self.system_disk.isdisjoint({drive_letter[0:2]}):
+            print("Attention!!There is no way to create a ShadowCopy on disk ", drive_letter[0:2], " . Аvailable", self.system_disk)
+            return False
+        self.current_shadowcopy_id=self.wmi.Win32_ShadowCopy.Create("C:\\", "ClientAccessible")
+        self.get_shadowcopys_id()
+        return self.current_shadowcopy_id
+
+    def delete_shadowcopy_by_id(self,id):
+        #Удаляем теневую копию
+        id=self.__id_shadowcopy_normalise(id)
+        if not(id):
+            return False
+        # Обновляем список доступных копий
+        self.get_shadowcopys_id()
+        if self.shadowcopys_id.isdisjoint({id}):
+            print("Attention!!You can't delete it. ", id, " - id was not found . Аvailable", self.shadowcopys_id)
+            return False
+        return self.wmi.Win32_ShadowCopy(ID=id)[0].Delete_()
+
+    def get_information_shadowcopy_by_id(self, id):
+        id=self.__id_shadowcopy_normalise(id)
+        if not(id):
+            return False
+        # Обновляем список доступных копий
+        self.get_shadowcopys_id()
+        if self.shadowcopys_id.isdisjoint({id}):
+            print("Attention!! ", id, " - id was not found . Аvailable", self.shadowcopys_id)
+            return False
+        return self.wmi.Win32_ShadowCopy(ID=id)[0]
+
+        #for shadowcopy in self.wmi.Win32_ShadowCopy():
+        #    self.shadowcopys_id.add(shadowcopy.ID)
+        #return self.shadowcopys_id
+
+    def __test_dir_name_to_mount(self,dir="error"):
+        dir=os.path.normpath(dir)
+        if os.path.isdir(dir):
+            print("Attention!! Cannot mount to an existing directory ", dir)
+            return False
+        if not(os.path.isabs(dir)):
+            print("Attention!! Not the correct path ", dir)
+            return False
+        if not(os.path.isdir(os.path.split(dir)[0])):
+            print("Attention!! The mount directory is not available ", os.path.split(dir)[0])
+            return False
+        return "\\\\?\\" + dir
+
+
+    def mount_shadowcopy_by_id(self, id="error", dirtomount="error"):
+        #Монтированеи в каталог теневой копии
+        dirtomount=self.__test_dir_name_to_mount(dirtomount)
+        id=self.__id_shadowcopy_normalise(id)
+        if not(id):
+            return False
+        self.get_shadowcopys_id()
+        if self.shadowcopys_id.isdisjoint({id}):
+            print("Attention!! ", id, " - id was not found . Аvailable", self.shadowcopys_id)
+            return False
+
+        if dirtomount != False:
+            mklink = ctypes.windll.LoadLibrary("kernel32.dll")
+            mklink.CreateSymbolicLinkW(dirtomount, self.wmi.Win32_ShadowCopy(ID=id)[0].VolumeName, 1)
+            self.current_dirtomount = dirtomount
+            return True
+        else:
+            return False
+
+    def unmount_current_shadowcopy(self):
+        #отмонтируем текущую теневую копию копию
+        if os.path.exists(self.current_dirtomount):
+            os.unlink(self.current_dirtomount)
+            return True
+        else:
+            return False
+
+    def delete_all_shadowcopys(self):
+        #Удаляем все доступные теневые копии
+        self.get_shadowcopys_id()
+        for shadowcopy_id in self.shadowcopys_id:
+            self.wmi.Win32_ShadowCopy(ID=shadowcopy_id)[0].Delete_()
+        return True
+
+
