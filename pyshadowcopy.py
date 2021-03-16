@@ -31,7 +31,6 @@ class pyshadowcopy():
         #Текущая директория для монтирования
         self.current_dirtomount = ""
 
-
     def get_disk(self):
         #Функция получения списка доступных дисков
         self.system_disk = set()
@@ -76,7 +75,7 @@ class pyshadowcopy():
         if (len(id) == 38 and id[0] == "{" and id[37] == "}" and id[9] == "-" and id[14] == "-" and id[19] == "-" and id[24] == "-" ):
             return id
         else:
-            print("Attention!!The ID shadowcopy does not match the format {00000000-0000-0000-0000-000000000000}")
+            print("Attention!! The ID shadowcopy does not match the format {00000000-0000-0000-0000-000000000000}")
             return False
 
     def __drive_letter_normalise(self,drive_letter="error"):
@@ -99,17 +98,27 @@ class pyshadowcopy():
             print("Attention!! The drive letter is not specified correctly(For example, C:, C:\\)")
         return drive_letter
 
+    def shadowcopy_description_return_value(self,return_code=-1):
+        # Возращает описание результата работы метода Create класса Win32_ShadowCopy
+        # https://docs.microsoft.com/en-us/previous-versions/windows/desktop/vsswmi/create-method-in-class-win32-shadowcopy
+        value=("Success.", "Access denied.", "Invalid argument.", "Specified volume not found.", "Specified volume not supported.", "Unsupported shadow copy context.", "Insufficient storage.", "Volume is in use.", "Maximum number of shadow copies reached.", "Another shadow copy operation is already in progress.", "Shadow copy provider vetoed the operation.", "Shadow copy provider not registered.", "Shadow copy provider failure.", "Unknown error.")
+        if return_code >= 0 and return_code <= 13 :
+            return value[return_code]
+        return return_code
+
     def create_shadowcopy_by_drive(self,drive_letter="error"):
         # Создает shadowcopy по полученной литере диска, возвращает False или ShadowCopy ID
         drive_letter=self.__drive_letter_normalise(drive_letter)
         if not(drive_letter):
             return False
-
         #проверяем можем ли мы выполнить shadowcopy (Является ли предложеный диск, диском с типом FS - NTFS)
         if self.system_disk.isdisjoint({drive_letter[0:2]}):
-            print("Attention!!There is no way to create a ShadowCopy on disk ", drive_letter[0:2], " . Аvailable", self.system_disk)
+            print("Attention!! There is no way to create a ShadowCopy on disk ", drive_letter[0:2], " . Аvailable", self.system_disk)
             return False
-        self.current_shadowcopy_id=self.wmi.Win32_ShadowCopy.Create("C:\\", "ClientAccessible")
+        self.create_shadowcopy=self.wmi.Win32_ShadowCopy.Create(Volume=drive_letter, Context="ClientAccessible")
+        self.current_shadowcopy_id=self.create_shadowcopy[1]
+        if self.create_shadowcopy[0] != 0:
+            print(self.shadowcopy_description_return_value(self.create_shadowcopy[0]))
         self.get_shadowcopys_id()
         return self.current_shadowcopy_id
 
@@ -121,9 +130,13 @@ class pyshadowcopy():
         # Обновляем список доступных копий
         self.get_shadowcopys_id()
         if self.shadowcopys_id.isdisjoint({id}):
-            print("Attention!!You can't delete it. ", id, " - id was not found . Аvailable", self.shadowcopys_id)
+            print("Attention!! You can't delete it. ", id, " - id was not found . Аvailable", self.shadowcopys_id)
             return False
         return self.wmi.Win32_ShadowCopy(ID=id)[0].Delete_()
+
+    def delete_current_shadowcopy(self):
+        #Удаляем текущую теневую копию
+        return self.delete_shadowcopy_by_id(self.current_shadowcopy_id)
 
     def get_information_shadowcopy_by_id(self, id):
         id=self.__id_shadowcopy_normalise(id)
@@ -152,7 +165,6 @@ class pyshadowcopy():
             print("Attention!! The mount directory is not available ", os.path.split(dir)[0])
             return False
         return "\\\\?\\" + dir
-
 
     def mount_shadowcopy_by_id(self, id="error", dirtomount="error"):
         #Монтированеи в каталог теневой копии
